@@ -177,6 +177,7 @@ for idx, row in page_df.iterrows():
                 "Homonym / Polysemy",
                 "Similar pronunciation",
                 "Cultural / Social meme",
+                "Situation-based incongruity / unexpected interpretation",
                 "Other / Not sure",
             ],
             key=f"humor_type_{item_id}",
