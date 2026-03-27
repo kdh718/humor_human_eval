@@ -9,6 +9,50 @@ PAGE_SIZE = 12
 
 st.set_page_config(page_title="Humor Human Evaluation", layout="wide")
 
+if not st.session_state.instruction_done:
+
+    st.title("평가 안내")
+
+    st.markdown("""
+다음 문장들을 읽고 유머 여부를 평가해주세요.
+
+[평가 기준]
+
+1. 이 문장이 유머라고 느껴지나요?
+- 유머라고 느껴지면 T, 아니면 F를 선택하세요.
+
+2. (유머라고 느꼈다면) 얼마나 재미있나요?
+- 1 (전혀 재미없음) ~ 5 (매우 재미있음)
+
+3. 이 문장이 유머라고 느껴지는 주된 이유는 무엇인가요?
+- 아래 유형 중 하나를 선택하세요.
+
+[유머 유형 설명]
+
+- Homonym / Polysemy:
+  하나의 단어가 여러 의미로 해석되며 발생하는 유머
+
+- Similar pronunciation:
+  발음이 비슷한 단어를 활용한 유머
+
+- Cultural / Social meme:
+  특정 문화, 밈, 사회적 맥락을 기반으로 한 유머
+
+- Situational incongruity / unexpected interpretation:
+  현실과 어긋난 해석이나 예상 밖의 상황 전개에서 발생하는 유머
+
+- Other / Not sure:
+  위에 해당하지 않거나 판단이 어려운 경우
+
+※ 각 문항에 대해 가장 적절한 하나의 유형만 선택해주세요.
+""")
+
+    if st.button("평가 시작"):
+        st.session_state.instruction_done = True
+        st.rerun()
+
+    st.stop()
+
 
 @st.cache_data
 def load_data(path: str) -> pd.DataFrame:
