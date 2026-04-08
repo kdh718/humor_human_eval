@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-DATA_PATH = "sampled_combined_720.csv"
+DATA_PATH = "sampled_combined_600.csv"
 DB_PATH = "human_eval.db"
 PAGE_SIZE = 12
 
