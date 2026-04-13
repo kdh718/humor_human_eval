@@ -144,74 +144,59 @@ type_options = [
     "Other / Not sure",
 ]
 
-with st.form(key=f"page_form_{page_num}"):
-    rows_to_save = []
+rows_to_save = []
 
-    for idx, row in page_df.iterrows():
-        item_id = int(idx)
-        sentence = row["sentence"]
+for idx, row in page_df.iterrows():
+    item_id = int(idx)
+    sentence = row["sentence"]
 
-        saved = saved_responses.get(item_id, {})
-        default_tf = saved.get("humor_tf", "F")
-        tf_index = 0 if default_tf == "T" else 1
+    st.markdown("---")
+    st.markdown(f"### Item {item_id}")
+    st.info(sentence)
 
-        st.markdown("---")
-        st.markdown(f"### Item {item_id}")
-        st.info(sentence)
+    humor_tf = st.radio(
+        f"[{item_id}] 이 문장이 유머라고 느껴지나요?",
+        options=["T", "F"],
+        key=f"humor_tf_{item_id}",
+        horizontal=True
+    )
 
-        humor_tf = st.radio(
-            f"[{item_id}] 이 문장이 유머라고 느껴지나요?",
-            options=["T", "F"],
-            index=tf_index,
-            key=f"humor_tf_{item_id}",
-            horizontal=True,
+    if humor_tf == "T":
+        funniness = st.radio(
+            f"[{item_id}] (유머라고 느꼈다면) 얼마나 재미있나요?",
+            options=[1, 2, 3, 4, 5],
+            key=f"funniness_{item_id}",
+            horizontal=True
         )
 
-        if humor_tf == "T":
-            default_funny = saved.get("funniness", 1)
-            if default_funny not in [1, 2, 3, 4, 5]:
-                default_funny = 1
-            funny_index = [1, 2, 3, 4, 5].index(default_funny)
+        humor_type = st.radio(
+            f"[{item_id}] 이 문장이 유머라고 느껴지는 주된 이유는 무엇인가요?",
+            options=[
+                "Homonym / Polysemy",
+                "Similar pronunciation",
+                "Cultural / Social meme",
+                "Other / Not sure"
+            ],
+            key=f"humor_type_{item_id}"
+        )
+    else:
+        st.caption("유머가 아니라고 선택하셨습니다. 나머지 문항은 자동 처리됩니다.")
+        funniness = 0
+        humor_type = "Other / Not sure"
 
-            default_type = saved.get("humor_type", "Other / Not sure")
-            type_index = (
-                type_options.index(default_type)
-                if default_type in type_options
-                else type_options.index("Other / Not sure")
-            )
+    rows_to_save.append({
+        "evaluator_id": evaluator_id,
+        "item_id": item_id,
+        "sentence": sentence,
+        "humor_tf": humor_tf,
+        "funniness": funniness,
+        "humor_type": humor_type,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    })
 
-            funniness = st.radio(
-                f"[{item_id}] (유머라고 느꼈다면) 얼마나 재미있나요?",
-                options=[1, 2, 3, 4, 5],
-                index=funny_index,
-                key=f"funniness_{item_id}",
-                horizontal=True,
-            )
-
-            humor_type = st.radio(
-                f"[{item_id}] 이 문장이 유머라고 느껴지는 주된 이유는 무엇인가요?",
-                options=type_options,
-                index=type_index,
-                key=f"humor_type_{item_id}",
-            )
-        else:
-            st.caption("유머가 아니라고 선택하셨습니다. 나머지 문항은 자동 처리됩니다.")
-            funniness = 0
-            humor_type = "Other / Not sure"
-
-        rows_to_save.append({
-            "evaluator_id": evaluator_id,
-            "item_id": item_id,
-            "sentence": sentence,
-            "humor_tf": humor_tf,
-            "funniness": funniness,
-            "humor_type": humor_type,
-            "submitted_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-    col1, col2 = st.columns(2)
-    submitted = col1.form_submit_button("이 페이지 제출")
-    save_only = col2.form_submit_button("현재 페이지 임시저장")
+col1, col2 = st.columns(2)
+submitted = col1.button("이 페이지 제출")
+save_only = col2.button("현재 페이지 임시저장")
 
 if submitted or save_only:
     try:
