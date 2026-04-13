@@ -61,17 +61,19 @@ def save_page_progress(supabase: Client, evaluator_id: str, next_page: int) -> N
         "next_page": next_page,
         "updated_at": now,
     }
-    supabase.table("progress").upsert(
-        payload,
-        on_conflict="evaluator_id",
-    ).execute()
+    (
+        supabase.table("progress")
+        .upsert(payload, on_conflict="evaluator_id")
+        .execute()
+    )
 
 
 def save_responses(supabase: Client, rows: list[dict]) -> None:
-    supabase.table("responses").upsert(
-        rows,
-        on_conflict="evaluator_id,item_id",
-    ).execute()
+    (
+        supabase.table("responses")
+        .upsert(rows, on_conflict="evaluator_id,item_id")
+        .execute()
+    )
 
 
 def get_completed_count(supabase: Client, evaluator_id: str) -> int:
@@ -128,15 +130,38 @@ def init_session_for_item(item_id: int, saved: dict) -> None:
         st.session_state[type_key] = saved_type
 
 
-def reset_page_session_state(page_df: pd.DataFrame) -> None:
-    for idx, _ in page_df.iterrows():
+def collect_rows_to_save(
+    page_df: pd.DataFrame,
+    evaluator_id: str,
+) -> list[dict]:
+    rows_to_save = []
+
+    for idx, row in page_df.iterrows():
         item_id = int(idx)
-        score_key = f"humor_score_{item_id}"
-        type_key = f"humor_type_{item_id}"
-        if score_key in st.session_state:
-            del st.session_state[score_key]
-        if type_key in st.session_state:
-            del st.session_state[type_key]
+        sentence = row["sentence"]
+
+        humor_score = st.session_state.get(f"humor_score_{item_id}", "Neutral")
+
+        if humor_score in TYPE_VISIBLE_SCORES:
+            humor_type = st.session_state.get(
+                f"humor_type_{item_id}",
+                "Other / Not sure",
+            )
+            if humor_type not in TYPE_OPTIONS:
+                humor_type = "Other / Not sure"
+        else:
+            humor_type = "Other / Not sure"
+
+        rows_to_save.append({
+            "evaluator_id": evaluator_id,
+            "item_id": item_id,
+            "sentence": sentence,
+            "humor_score": humor_score,
+            "humor_type": humor_type,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return rows_to_save
 
 
 supabase = get_supabase_client()
@@ -180,7 +205,10 @@ st.write(f"진행 상황: **{completed_count} / {total_n}**")
 st.write(f"현재 페이지: **{page_num + 1} / {max_page + 1}**")
 st.progress(completed_count / total_n if total_n > 0 else 0)
 
-rows_to_save = []
+if page_num == 0:
+    st.caption("현재 첫 페이지입니다.")
+if page_num == max_page:
+    st.caption("현재 마지막 페이지입니다.")
 
 for idx, row in page_df.iterrows():
     item_id = int(idx)
@@ -201,46 +229,43 @@ for idx, row in page_df.iterrows():
     )
 
     if humor_score in TYPE_VISIBLE_SCORES:
-        humor_type = st.radio(
+        st.radio(
             f"[{item_id}] 왜 그렇게 판단했나요?",
             options=TYPE_OPTIONS,
             key=f"humor_type_{item_id}",
         )
     else:
         st.caption("유머성이 낮다고 선택하셨습니다. 유형 문항은 자동 처리됩니다.")
-        humor_type = "Other / Not sure"
         st.session_state[f"humor_type_{item_id}"] = "Other / Not sure"
 
-    rows_to_save.append({
-        "evaluator_id": evaluator_id,
-        "item_id": item_id,
-        "sentence": sentence,
-        "humor_score": humor_score,
-        "humor_type": humor_type,
-        "submitted_at": datetime.now(timezone.utc).isoformat(),
-    })
-
 st.markdown("---")
-col1, col2 = st.columns(2)
-submitted = col1.button("이 페이지 제출", use_container_width=True)
-save_only = col2.button("현재 페이지 임시저장", use_container_width=True)
 
-if submitted or save_only:
+rows_to_save = collect_rows_to_save(page_df, evaluator_id)
+
+col1, col2, col3 = st.columns(3)
+prev_btn = col1.button("⬅️ 이전 페이지", use_container_width=True)
+save_only = col2.button("💾 임시저장", use_container_width=True)
+next_btn = col3.button("➡️ 다음 페이지", use_container_width=True)
+
+if prev_btn or save_only or next_btn:
     try:
         save_responses(supabase, rows_to_save)
 
-        if submitted:
-            next_page = min(page_num + 1, max_page + 1)
+        if prev_btn:
+            next_page = max(page_num - 1, 0)
+        elif next_btn:
+            next_page = min(page_num + 1, max_page)
         else:
             next_page = page_num
 
         save_page_progress(supabase, evaluator_id, next_page)
         st.session_state.page_num = next_page
 
-        if submitted:
-            reset_page_session_state(page_df)
+        if next_btn and page_num == max_page:
+            st.success("마지막 페이지까지 저장되었습니다.")
+        else:
+            st.success("저장되었습니다.")
 
-        st.success("저장되었습니다.")
         st.rerun()
 
     except Exception as e:
