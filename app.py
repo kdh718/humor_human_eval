@@ -21,6 +21,7 @@ TYPE_OPTIONS = [
     "Homonym / Polysemy",
     "Similar pronunciation",
     "Cultural / Social meme",
+    "Situational incongruity / unexpected interpretation"
     "Other / Not sure",
 ]
 
