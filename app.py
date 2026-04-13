@@ -3,11 +3,28 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from supabase import create_client, Client
+from supabase import Client, create_client
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "sampled_combined_600.csv"
 PAGE_SIZE = 12
+
+SCORE_OPTIONS = [
+    "Very low",
+    "Low",
+    "Neutral",
+    "High",
+    "Very high",
+]
+
+TYPE_OPTIONS = [
+    "Homonym / Polysemy",
+    "Similar pronunciation",
+    "Cultural / Social meme",
+    "Other / Not sure",
+]
+
+TYPE_VISIBLE_SCORES = {"Neutral", "High", "Very high"}
 
 st.set_page_config(page_title="Humor Human Evaluation", layout="wide")
 
@@ -44,19 +61,17 @@ def save_page_progress(supabase: Client, evaluator_id: str, next_page: int) -> N
         "next_page": next_page,
         "updated_at": now,
     }
-    (
-        supabase.table("progress")
-        .upsert(payload, on_conflict="evaluator_id")
-        .execute()
-    )
+    supabase.table("progress").upsert(
+        payload,
+        on_conflict="evaluator_id",
+    ).execute()
 
 
 def save_responses(supabase: Client, rows: list[dict]) -> None:
-    (
-        supabase.table("responses")
-        .upsert(rows, on_conflict="evaluator_id,item_id")
-        .execute()
-    )
+    supabase.table("responses").upsert(
+        rows,
+        on_conflict="evaluator_id,item_id",
+    ).execute()
 
 
 def get_completed_count(supabase: Client, evaluator_id: str) -> int:
@@ -69,10 +84,10 @@ def get_completed_count(supabase: Client, evaluator_id: str) -> int:
     return res.count or 0
 
 
-def load_saved_responses(supabase: Client, evaluator_id: str) -> dict:
+def load_saved_responses(supabase: Client, evaluator_id: str) -> dict[int, dict]:
     res = (
         supabase.table("responses")
-        .select("item_id, humor_tf, funniness, humor_type")
+        .select("item_id, humor_score, humor_type")
         .eq("evaluator_id", evaluator_id)
         .execute()
     )
@@ -80,8 +95,7 @@ def load_saved_responses(supabase: Client, evaluator_id: str) -> dict:
     saved = {}
     for row in res.data or []:
         saved[int(row["item_id"])] = {
-            "humor_tf": row.get("humor_tf"),
-            "funniness": row.get("funniness"),
+            "humor_score": row.get("humor_score"),
             "humor_type": row.get("humor_type"),
         }
     return saved
@@ -97,14 +111,43 @@ def load_all_responses_df(supabase: Client) -> pd.DataFrame:
     return pd.DataFrame(res.data or [])
 
 
+def init_session_for_item(item_id: int, saved: dict) -> None:
+    score_key = f"humor_score_{item_id}"
+    type_key = f"humor_type_{item_id}"
+
+    if score_key not in st.session_state:
+        saved_score = saved.get("humor_score", "Neutral")
+        if saved_score not in SCORE_OPTIONS:
+            saved_score = "Neutral"
+        st.session_state[score_key] = saved_score
+
+    if type_key not in st.session_state:
+        saved_type = saved.get("humor_type", "Other / Not sure")
+        if saved_type not in TYPE_OPTIONS:
+            saved_type = "Other / Not sure"
+        st.session_state[type_key] = saved_type
+
+
+def reset_page_session_state(page_df: pd.DataFrame) -> None:
+    for idx, _ in page_df.iterrows():
+        item_id = int(idx)
+        score_key = f"humor_score_{item_id}"
+        type_key = f"humor_type_{item_id}"
+        if score_key in st.session_state:
+            del st.session_state[score_key]
+        if type_key in st.session_state:
+            del st.session_state[type_key]
+
+
 supabase = get_supabase_client()
+
+if not DATA_PATH.exists():
+    st.error(f"데이터 파일이 없습니다: {DATA_PATH}")
+    st.stop()
+
 df = load_data(str(DATA_PATH))
 
 st.title("Humor Human Evaluation")
-
-with st.expander("Debug info"):
-    st.write("data path:", str(DATA_PATH))
-    st.write("total items:", len(df))
 
 evaluator_id = st.text_input("Evaluator ID")
 
@@ -137,66 +180,50 @@ st.write(f"진행 상황: **{completed_count} / {total_n}**")
 st.write(f"현재 페이지: **{page_num + 1} / {max_page + 1}**")
 st.progress(completed_count / total_n if total_n > 0 else 0)
 
-type_options = [
-    "Homonym / Polysemy",
-    "Similar pronunciation",
-    "Cultural / Social meme",
-    "Other / Not sure",
-]
-
 rows_to_save = []
 
 for idx, row in page_df.iterrows():
     item_id = int(idx)
     sentence = row["sentence"]
+    saved = saved_responses.get(item_id, {})
+
+    init_session_for_item(item_id, saved)
 
     st.markdown("---")
     st.markdown(f"### Item {item_id}")
     st.info(sentence)
 
-    humor_tf = st.radio(
-        f"[{item_id}] 이 문장이 유머라고 느껴지나요?",
-        options=["T", "F"],
-        key=f"humor_tf_{item_id}",
-        horizontal=True
+    humor_score = st.radio(
+        f"[{item_id}] 이 문장이 얼마나 유머로 보이나요?",
+        options=SCORE_OPTIONS,
+        key=f"humor_score_{item_id}",
+        horizontal=True,
     )
 
-    if humor_tf == "T":
-        funniness = st.radio(
-            f"[{item_id}] (유머라고 느꼈다면) 얼마나 재미있나요?",
-            options=[1, 2, 3, 4, 5],
-            key=f"funniness_{item_id}",
-            horizontal=True
-        )
-
+    if humor_score in TYPE_VISIBLE_SCORES:
         humor_type = st.radio(
-            f"[{item_id}] 이 문장이 유머라고 느껴지는 주된 이유는 무엇인가요?",
-            options=[
-                "Homonym / Polysemy",
-                "Similar pronunciation",
-                "Cultural / Social meme",
-                "Other / Not sure"
-            ],
-            key=f"humor_type_{item_id}"
+            f"[{item_id}] 왜 그렇게 판단했나요?",
+            options=TYPE_OPTIONS,
+            key=f"humor_type_{item_id}",
         )
     else:
-        st.caption("유머가 아니라고 선택하셨습니다. 나머지 문항은 자동 처리됩니다.")
-        funniness = 0
+        st.caption("유머성이 낮다고 선택하셨습니다. 유형 문항은 자동 처리됩니다.")
         humor_type = "Other / Not sure"
+        st.session_state[f"humor_type_{item_id}"] = "Other / Not sure"
 
     rows_to_save.append({
         "evaluator_id": evaluator_id,
         "item_id": item_id,
         "sentence": sentence,
-        "humor_tf": humor_tf,
-        "funniness": funniness,
+        "humor_score": humor_score,
         "humor_type": humor_type,
         "submitted_at": datetime.now(timezone.utc).isoformat(),
     })
 
+st.markdown("---")
 col1, col2 = st.columns(2)
-submitted = col1.button("이 페이지 제출")
-save_only = col2.button("현재 페이지 임시저장")
+submitted = col1.button("이 페이지 제출", use_container_width=True)
+save_only = col2.button("현재 페이지 임시저장", use_container_width=True)
 
 if submitted or save_only:
     try:
@@ -209,6 +236,9 @@ if submitted or save_only:
 
         save_page_progress(supabase, evaluator_id, next_page)
         st.session_state.page_num = next_page
+
+        if submitted:
+            reset_page_session_state(page_df)
 
         st.success("저장되었습니다.")
         st.rerun()
